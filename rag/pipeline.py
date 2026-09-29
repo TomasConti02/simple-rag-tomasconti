@@ -1,9 +1,11 @@
+import time
 from abc import ABC
 
 from .llm import BaseLLM
 from .prompt import ANSWER_PROMPT
 from .rerank import BaseRerank
 from .retrieval import BaseRetrieval
+from .telemetry import KafkaTelemetryLogger
 
 
 class Answer:
@@ -27,32 +29,65 @@ class SimpleRAGPipeline(Pipeline):
             raise ValueError("Please provide a `retrieval` model.")
         if not kwargs.get("llm"):
             raise ValueError("Please provide a `llm` model.")
+
         self.retrieval = kwargs.get("retrieval")
-        # assert retrieval must be BaseRetrieval class or it inherits from BaseRetrieval
         assert issubclass(self.retrieval.__class__, BaseRetrieval)
+
         self.rerank = kwargs.get("rerank")
         if self.rerank:
-            # assert rerank must be BaseRerank class or it inherits from BaseRerank
             assert issubclass(self.rerank.__class__, BaseRerank)
+
         self.llm = kwargs.get("llm")
-        # assert llm must be BaseLLM class or it inherits from BaseLLM
         assert issubclass(self.llm.__class__, BaseLLM)
+
         self.retrieval_top_k = kwargs.get("retrieval_top_k", 100)
         self.rerank_top_k = kwargs.get("rerank_top_k", 3)
 
+        # KafkaTelemetryLogger init
+        enable_telemetry = kwargs.get("enable_telemetry", True)
+        self.telemetry = KafkaTelemetryLogger() if enable_telemetry else None
+
     def run(self, query: str) -> Answer:
-        # Retrieve documents
-        relevant_docs, relevant_meta = self.retrieval.retrieve(
-            query, top_k=self.retrieval_top_k
-        )
-        # Rerank documents
+        total_start = time.time()
+
+        t0 = time.time()
+        relevant_docs, relevant_meta = self.retrieval.retrieve( query, top_k=self.retrieval_top_k )
+        retrieval_time = time.time() - t0
+
+        t1 = time.time()
         if self.rerank:
-            reranked_docs, scores = self.rerank.rerank(
-                query, relevant_docs, top_k=self.rerank_top_k
-            )
+            reranked_docs, scores = self.rerank.rerank( query, relevant_docs, top_k=self.rerank_top_k )
         else:
             reranked_docs = relevant_docs
-        # Generate answer
+        rerank_time = time.time() - t1
+
         prompt = ANSWER_PROMPT.format(query=query, context="\n".join(reranked_docs))
-        answer = self.llm.generate(prompt)
-        return Answer(answer=answer, contexts=reranked_docs)
+        t2 = time.time()
+        answer_text = self.llm.generate(prompt)
+        llm_time = time.time() - t2
+
+        total_time = time.time() - total_start
+
+        # JSON Metrics Formatting for the kafka event
+        metrics = {
+            "query": query,
+            "retrieved_chunks_count": len(relevant_docs),
+            "reranked_chunks_count": len(reranked_docs),
+            "retrieval_time_sec": round(retrieval_time, 4),
+            "rerank_time_sec": round(rerank_time, 4),
+            "llm_generation_time_sec": round(llm_time, 4),
+            "total_latency_sec": round(total_time, 4),
+            "answer_length_chars": len(answer_text)
+            if isinstance(answer_text, str)
+            else len(str(answer_text)),
+        }
+
+        for k, v in metrics.items():
+            print(f"  {k}: {v}")
+        
+
+        # Non-blocking async event logging via Kafka
+        if self.telemetry:
+            self.telemetry.log_event(metrics)
+
+        return Answer(answer=answer_text, contexts=reranked_docs)
