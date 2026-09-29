@@ -14,7 +14,7 @@ CREATE STREAM IF NOT EXISTS rag_telemetry_stream (
     REPLICAS=1
 );
 
-CREATE TABLE IF NOT EXISTS rag_pipeline_metrics_5min WITH (KAFKA_TOPIC='rag-metrics-5min') AS
+CREATE TABLE IF NOT EXISTS rag_pipeline_metrics_live WITH (KAFKA_TOPIC='rag-metrics-live') AS
     SELECT
         'RAG_PIPELINE' AS pipeline_id,
         COUNT(*) AS total_queries,
@@ -25,6 +25,5 @@ CREATE TABLE IF NOT EXISTS rag_pipeline_metrics_5min WITH (KAFKA_TOPIC='rag-metr
         ROUND(AVG(llm_generation_time_sec), 4) AS avg_llm_time_sec,
         ROUND(AVG(answer_length_chars), 0) AS avg_answer_length_chars
     FROM rag_telemetry_stream
-    WINDOW TUMBLING (SIZE 5 MINUTES)
     GROUP BY 'RAG_PIPELINE'
     EMIT CHANGES;
