@@ -1,3 +1,92 @@
+## TOMAS CONTI plugin
+
+Starting from the original RAG project, I updated pipeline.py to incorporate an asynchronous telemetry component (telemetry.py).
+The logger operates non-blockingly via a background thread loop and an async Kafka producer. Execution metrics are emitted as standard JSON events to the rag-telemetry Kafka topic for downstream consumption. To demonstrate advanced stream processing, I also included a ksqlDB setup that performs aggregations on the event stream to capture some system performance features(mock).
+
+[**`rag/logger/docker-compose.yaml`**](rag/logger/docker-compose.yaml) — Docker Compose configuration orchestrating Apache Kafka in KRaft mode.
+
+[**`rag/logger/init.sql`**](rag/logger/init.sql) — Initial database setup script for metrics aggregation and logging.
+
+[**`rag/telemetry.py`**](rag/telemetry.py) — Thread-safe asynchronous Kafka telemetry producer using `aiokafka`.
+
+[**`rag/pipeline.py`**](rag/pipeline.py) — Instrumented `SimpleRAGPipeline` with fine-grained latency profiling.
+
+[**`examples/simple_rag_bm25_ollama.py`**](examples/simple_rag_bm25_ollama.py) — Runnable end-to-end example query script.
+
+-----------
+
+Model warm up 
+
+```bash
+#warm-up
+ollama run llama3:instruct "hi"
+```
+Create The back end support by docker compose yaml:
+
+```bash
+
+cd rag/logger/
+
+docker compose up -d
+[+] Running 4/4
+ ✔ Network logger_default   Created                                                                                                                                                0.0s 
+ ✔ Container kafka-rag      Healthy                                                                                                                                                6.7s 
+ ✔ Container ksqldb-server  Healthy                                                                                                                                               12.3s 
+ ✔ Container ksqldb-init    Started                                                   
+```
+
+Check tabels:
+```bash
+
+docker exec -it ksqldb-server ksql http://localhost:8088 -e "SHOW STREAMS; SHOW TABLES;"
+
+SHOW STREAMS;
+ Stream Name          | Kafka Topic                                     | Key Format | Value Format | Windowed 
+---------------------------------------------------------------------------------------------------------------
+ KSQL_PROCESSING_LOG  | ksql_rag_telemetry_processorksql_processing_log | KAFKA      | JSON         | false    
+ RAG_TELEMETRY_STREAM | rag-telemetry                                   | KAFKA      | JSON         | false    
+---------------------------------------------------------------------------------------------------------------
+
+SHOW TABLES;
+ Table Name                | Kafka Topic      | Key Format | Value Format | Windowed 
+-------------------------------------------------------------------------------------
+ RAG_PIPELINE_METRICS_5MIN | rag-metrics-5min | KAFKA      | JSON         | true     
+-------------------------------------------------------------------------------------
+```
+
+Follow the original repository steps for system startup.
+Run the ollama server and RAG support:
+
+```bash
+python examples/simple_rag_bm25_ollama.py 
+```
+
+Check the Kafka topic log:
+
+```bash
+
+docker exec -it kafka-rag /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 \
+  --topic rag-telemetry \
+  --from-beginning
+The consumer rebalance protocol (KIP-848) is production-ready! Set group.protocol=consumer to try it out. See https://kafka.apache.org/documentation/#consumer_rebalance_protocol
+{"query": "What can Ollama do?", "retrieved_chunks_count": 10, "reranked_chunks_count": 3, "retrieval_time_sec": 0.0015, "rerank_time_sec": 0.7818, "llm_generation_time_sec": 35.5409, "total_latency_sec": 36.3242, "answer_length_chars": 599}
+{"query": "hi", "retrieved_chunks_count": 10, "reranked_chunks_count": 1, "retrieval_time_sec": 0.0017, "rerank_time_sec": 0.8116, "llm_generation_time_sec": 11.0898, "total_latency_sec": 11.903, "answer_length_chars": 174}
+{"query": "hi", "retrieved_chunks_count": 10, "reranked_chunks_count": 1, "retrieval_time_sec": 0.0102, "rerank_time_sec": 0.8517, "llm_generation_time_sec": 1.8984, "total_latency_sec": 2.7605, "answer_length_chars": 31}
+```
+Check the table aggregation into the db attach to Kafka:
+```bash
+docker exec -it ksqldb-server ksql http://localhost:8088 -e "SELECT * FROM RAG_PIPELINE_METRICS_LIVE WHERE PIPELINE_ID = 'RAG_PIPELINE';"
++---------+---------+---------+---------+---------+---------+---------+---------+
+|PIPELINE_|TOTAL_QUE|AVG_TOTAL|MAX_TOTAL|AVG_RETRI|AVG_RERAN|AVG_LLM_T|AVG_ANSWE|
+|ID       |RIES     |_LATENCY_|_LATENCY_|EVAL_TIME|K_TIME_SE|IME_SEC  |R_LENGTH_|
+|         |         |SEC      |SEC      |_SEC     |C        |         |CHARS    |
++---------+---------+---------+---------+---------+---------+---------+---------+
+|RAG_PIPEL|4        |39.5765  |40.8344  |0.0013   |0.8014   |38.7738  |599.0    |
+|INE      |         |         |         |         |         |         |         |
+Query terminated
+```
+---------------------------------------------
 # Simple RAG
 This is a simple RAG (Retrieval-Augmented Generation) that mostly self-implemented. This simple-rag package contain 4 modules:
 - **Retrieval**: A retriever that retrieve the most relevant documents from a given corpus.
