@@ -10,12 +10,11 @@ logger = logging.getLogger(__name__)
 
 class KafkaTelemetryLogger:
 
-    def __init__( self, bootstrap_servers: str = "localhost:9092", topic: str = "rag-telemetry", ):
+    def __init__( self, bootstrap_servers: str = "localhost:9092", topic: str = "rag-telemetry", ): #kafka end point and topic
         self.bootstrap_servers = bootstrap_servers
         self.topic = topic
         self.producer = None
         self.enabled = False
-
         # event loop thread in back ground operate with a corutine principle 
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
@@ -29,7 +28,8 @@ class KafkaTelemetryLogger:
 
     async def _start_producer(self):
         try:
-            self.producer = AIOKafkaProducer( bootstrap_servers=self.bootstrap_servers, value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+            self.producer = AIOKafkaProducer( bootstrap_servers=self.bootstrap_servers, # read the kafka asynch producer 
+                                             value_serializer=lambda v: json.dumps(v).encode("utf-8"),
                                              request_timeout_ms=3000, )
             await self.producer.start()
             self.enabled = True
@@ -40,11 +40,11 @@ class KafkaTelemetryLogger:
 
     def log_event(self, metrics: Dict[str, Any]): # log is no blocking. lets operate the backgrounf thread
         if self.enabled and self.producer:
-            asyncio.run_coroutine_threadsafe( self._async_send(metrics), self._loop )
+            asyncio.run_coroutine_threadsafe( self._async_send(metrics), self._loop ) #lest operate a corutine in the background the log forward
 
     async def _async_send(self, metrics: Dict[str, Any]):
         try:
-            metadata = await self.producer.send_and_wait(self.topic, value=metrics)
+            metadata = await self.producer.send_and_wait(self.topic, value=metrics) # lest operate asynch kafka send. corutine back as soon as there is a response
             print( f"[Kafka Telemetry] Event emitted -> topic '{metadata.topic}' " f"(partition {metadata.partition})" )
         except Exception as e:
             logger.error(f"[Kafka Telemetry] Delivery error: {e}")

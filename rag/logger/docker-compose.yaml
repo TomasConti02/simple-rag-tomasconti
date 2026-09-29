@@ -4,12 +4,12 @@ services:
     container_name: kafka-rag
     hostname: kafka
     ports:
-      - "9092:9092" 
+      - "9092:9092" #port for the clients
     environment:
       KAFKA_NODE_ID: 1
-      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_PROCESS_ROLES: 'broker,controller' #node operate as broker and controller
       KAFKA_CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
-      KAFKA_LISTENERS: 'INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093'
+      KAFKA_LISTENERS: 'INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093' #portf for docker containers communications
       KAFKA_ADVERTISED_LISTENERS: 'INTERNAL://kafka:29092,EXTERNAL://localhost:9092'
       KAFKA_INTER_BROKER_LISTENER_NAME: 'INTERNAL'
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
@@ -19,7 +19,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1 #mock
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1 #mock
       KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
-    healthcheck:
+    healthcheck: #healthcheck
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"] # topic list bootstrap
       interval: 5s
       timeout: 5s
@@ -33,14 +33,14 @@ services:
       kafka:
         condition: service_healthy
     ports:
-      - "8088:8088"
+      - "8088:8088" # client port for the db 
     environment:
       KSQL_LISTENERS: "http://0.0.0.0:8088"
-      KSQL_BOOTSTRAP_SERVERS: "kafka:29092" #connect to kafka
+      KSQL_BOOTSTRAP_SERVERS: "kafka:29092" #connect to kafka through INTERNAL 
       KSQL_KSQL_SERVICE_ID: "ksql_rag_telemetry_processor"
       KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: "true"
       KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
-    healthcheck:
+    healthcheck: #Healthcheck
       test: ["CMD-SHELL", "nc -z localhost 8088 || exit 1"]
       interval: 5s
       timeout: 5s
@@ -54,7 +54,7 @@ services:
       ksqldb-server:
         condition: service_healthy
     volumes:
-      - ./init.sql:/tmp/init.sql
+      - ./init.sql:/tmp/init.sql #map the sql 
     entrypoint: [ "/bin/sh", "-c" ]
     command: # inject the sql code for the aggragation
       - |

@@ -1,3 +1,4 @@
+
 CREATE STREAM IF NOT EXISTS rag_telemetry_stream (
     `query` VARCHAR,
     retrieved_chunks_count INT,
@@ -7,12 +8,8 @@ CREATE STREAM IF NOT EXISTS rag_telemetry_stream (
     llm_generation_time_sec DOUBLE,
     total_latency_sec DOUBLE,
     answer_length_chars INT
-) WITH (
-    KAFKA_TOPIC='rag-telemetry',
-    VALUE_FORMAT='JSON',
-    PARTITIONS=1,
-    REPLICAS=1
-);
+) WITH ( KAFKA_TOPIC='rag-telemetry', VALUE_FORMAT='JSON', PARTITIONS=1, REPLICAS=1 );
+
 
 CREATE TABLE IF NOT EXISTS rag_pipeline_metrics_live WITH (KAFKA_TOPIC='rag-metrics-live') AS
     SELECT
